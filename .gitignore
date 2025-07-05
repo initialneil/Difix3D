@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+*.env
+
+# VSCode
+.vscode/
+
+# Data & Outputs
+data/
+outputs/
+checkpoints/
+assets/hugging_face
+*.pkl
+*.pt
+*.ckpt
+
+# Logs & Reports
+*.log
+wandb/
+*.out
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Test & Coverage
+htmlcov/
+.tox/
+.coverage
+.cache
+pytest_cache/
+
+# Misc
+*.bak
+*.swp
+*.tmp
