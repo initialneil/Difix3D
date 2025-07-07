@@ -69,13 +69,14 @@ def main(args):
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
 
-    net_lpips = lpips.LPIPS(net='vgg').cuda()
-
-    net_lpips.requires_grad_(False)
+    if args.lambda_lpips > 0:
+        net_lpips = lpips.LPIPS(net='vgg').cuda()
+        net_lpips.requires_grad_(False)
     
-    net_vgg = torchvision.models.vgg16(pretrained=True).features
-    for param in net_vgg.parameters():
-        param.requires_grad_(False)
+    if args.lambda_gram > 0:
+        net_vgg = torchvision.models.vgg16(pretrained=True).features
+        for param in net_vgg.parameters():
+            param.requires_grad_(False)
 
     # make the optimizer
     layers_to_opt = []
@@ -98,15 +99,14 @@ def main(args):
         num_training_steps=args.max_train_steps * accelerator.num_processes,
         num_cycles=args.lr_num_cycles, power=args.lr_power,)
 
-    input_ids = net_denoise.tokenizer(
-        args.prompt, max_length=net_denoise.tokenizer.model_max_length,
-        padding="max_length", truncation=True, return_tensors="pt"
-    ).input_ids.detach().cpu()
-
     res = args.resolution
-    dataset_train = DenoiseDataset(dataset_path=args.train_dataset_path, split="train", width=res, height=res, input_ids=input_ids)
+    dataset_train = DenoiseDataset(dataset_path=args.train_dataset_path, split="train", 
+                                   width=res, height=res, load_to_memory=args.load_to_memory,
+                                   caption=args.prompt, tokenizer=net_denoise.tokenizer)
     dl_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.train_batch_size, shuffle=True, num_workers=args.dataloader_num_workers)
-    dataset_val = DenoiseDataset(dataset_path=args.val_dataset_path, split="test", width=res, height=res, input_ids=input_ids)
+    dataset_val = DenoiseDataset(dataset_path=args.val_dataset_path, split="test", 
+                                 width=res, height=res, load_to_memory=args.load_to_memory,
+                                 caption=args.prompt, tokenizer=net_denoise.tokenizer)
     dl_val = torch.utils.data.DataLoader(dataset_val, batch_size=1, shuffle=False, num_workers=0)
 
     # Resume from checkpoint
@@ -141,14 +141,19 @@ def main(args):
 
     # Move al networksr to device and cast to weight_dtype
     net_denoise.to(accelerator.device, dtype=weight_dtype)
-    net_lpips.to(accelerator.device, dtype=weight_dtype)
-    net_vgg.to(accelerator.device, dtype=weight_dtype)
+    if args.lambda_lpips > 0:
+        net_lpips.to(accelerator.device, dtype=weight_dtype)
+    if args.lambda_gram > 0:
+        net_vgg.to(accelerator.device, dtype=weight_dtype)
     
     # Prepare everything with our `accelerator`.
     net_denoise, optimizer, dl_train, lr_scheduler = accelerator.prepare(
         net_denoise, optimizer, dl_train, lr_scheduler
     )
-    net_lpips, net_vgg = accelerator.prepare(net_lpips, net_vgg)
+    if args.lambda_lpips > 0:
+        net_lpips = accelerator.prepare(net_lpips)
+    if args.lambda_gram > 0:
+        net_vgg = accelerator.prepare(net_vgg)
     # renorm with image net statistics
     t_vgg_renorm =  transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 
@@ -169,6 +174,8 @@ def main(args):
 
     # start the training loop
     for epoch in range(0, args.num_training_epochs):
+        print("="*50)
+        print(f"Epoch {epoch + 1} / {args.num_training_epochs}")
         for step, batch in enumerate(dl_train):
             l_acc = [net_denoise]
             with accelerator.accumulate(*l_acc):
@@ -184,8 +191,14 @@ def main(args):
                          
                 # Reconstruction loss
                 loss_l2 = F.mse_loss(x_tgt_pred.float(), x_tgt.float(), reduction="mean") * args.lambda_l2
-                loss_lpips = net_lpips(x_tgt_pred.float(), x_tgt.float()).mean() * args.lambda_lpips
-                loss = loss_l2 + loss_lpips
+                # loss_l2 = (((x_tgt_pred.float() - x_tgt.float()) / (x_tgt_pred.float().detach() + 1e-2)) ** 2).mean()
+
+                if args.lambda_lpips > 0:
+                    loss_lpips = net_lpips(x_tgt_pred.float(), x_tgt.float()).mean() * args.lambda_lpips
+                    loss = loss_l2 + loss_lpips
+                else:
+                    loss_lpips = torch.tensor(0.0).to(weight_dtype)
+                    loss = loss_l2
                 
                 # Gram matrix loss
                 if args.lambda_gram > 0:
@@ -230,7 +243,7 @@ def main(args):
                     # viz some images
                     if global_step % args.viz_freq == 1:
                         log_dict = {
-                            "train/source": [wandb.Image(x_src[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
+                            "train/source": [wandb.Image(x_src[idx].float().detach().cpu().clamp(-1, 1), caption=f"idx={idx}") for idx in range(B)],
                             "train/target": [wandb.Image(x_tgt[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
                             "train/model_output": [wandb.Image(x_tgt_pred[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
                         }
@@ -294,6 +307,9 @@ if __name__ == "__main__":
     parser.add_argument("--train_dataset_path", required=True, type=str)
     parser.add_argument("--val_dataset_path", required=True, type=str)
     parser.add_argument("--prompt", default="denoise and restore", type=str)
+    parser.add_argument("--load_to_memory", action="store_true",
+        help="Whether to load the dataset into memory. If set, the dataset will be loaded into memory, which can speed up training but requires more memory.",
+    )
 
     # validation eval args
     parser.add_argument("--eval_freq", default=100, type=int)

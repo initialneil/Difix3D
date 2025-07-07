@@ -1,20 +1,23 @@
 import json
+import numpy as np
 import torch
 from PIL import Image
 import glob
 import os
 from torchvision import transforms
 import torchvision.transforms.functional as F
-
+from tqdm import tqdm
 
 class DenoiseDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset_path, split, noise_ival=[5, 30], height=512, width=512, input_ids=None):
+    def __init__(self, dataset_path, split, noise_ival=[5, 30], height=512, width=512, 
+                 caption='denoise and restore', tokenizer=None, load_to_memory=False):
 
         super().__init__()
         self.dataset_path = dataset_path
         self.noise_ival = torch.tensor(noise_ival) / 255.0
         self.image_size = (height, width)
-        self.input_ids = input_ids
+        self.caption = caption
+        self.tokenizer = tokenizer
 
         img_fns = glob.glob(os.path.join(dataset_path, '*.jpg')) + glob.glob(os.path.join(dataset_path, '*.png'))
         self.data = {}
@@ -50,7 +53,9 @@ class DenoiseDataset(torch.utils.data.Dataset):
             self.T_input = transforms.Compose([
                 # transforms.Resize(self.image_size, interpolation=Image.LANCZOS),
             ])
-
+        
+        if load_to_memory:
+            self.load_dataset_into_memory()
 
     def __len__(self):
         return len(self.img_ids)
@@ -58,32 +63,44 @@ class DenoiseDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
 
         img_id = self.img_ids[idx]
-        input_img = self.data[img_id]['image_path']
         
         try:
-            input_img = Image.open(input_img)
+            if 'image' in self.data[img_id]:
+                input_img = self.data[img_id]['image']
+            else:
+                input_img = self.data[img_id]['image_path']
+                input_img = np.array(Image.open(input_img))
+
+            input_img = Image.fromarray(input_img)
+            output_t = self.T_gt(input_img)
+            img_t = F.to_tensor(output_t)
+            output_t = F.to_tensor(output_t)
+
+            # output images scaled to -1,1
+            output_t = F.normalize(output_t, mean=[0.5], std=[0.5])
+
+            # input images scaled to -1,1
+            img_t = self.T_input(img_t)
+            img_t = F.normalize(img_t, mean=[0.5], std=[0.5])
+
+            out = {
+                'output_pixel_values': output_t,
+                'conditioning_pixel_values': img_t,
+                'caption': self.caption,
+            }
+
+            if self.tokenizer is not None:
+                input_ids = self.tokenizer(
+                    self.caption, max_length=self.tokenizer.model_max_length,
+                    padding="max_length", truncation=True, return_tensors="pt"
+                ).input_ids
+                out["input_ids"] = input_ids
+
+            return out
+            
         except:
-            print('Error loading image:', input_img)
+            print('Error loading image:', img_id)
             return self.__getitem__(idx + 1)
-
-        output_t = self.T_gt(input_img)
-        img_t = F.to_tensor(output_t)
-        output_t = F.to_tensor(output_t)
-
-        # output images scaled to -1,1
-        output_t = F.normalize(output_t, mean=[0.5], std=[0.5])
-
-        # input images scaled to 0,1
-        img_t = self.T_input(img_t)
-        img_t = F.normalize(img_t, mean=[0.5], std=[0.5])
-
-        out = {
-            'output_pixel_values': output_t,
-            'conditioning_pixel_values': img_t,
-            'input_ids': self.input_ids,
-        }
-
-        return out
 
     def add_random_noise(self, img):
         """
@@ -103,3 +120,19 @@ class DenoiseDataset(torch.utils.data.Dataset):
             noise = torch.zeros_like(img[:1, ...])
         noise = torch.normal(mean=noise, std=stdn.expand_as(noise))
         return img + noise
+
+    def load_dataset_into_memory(self):
+        """
+        Load the dataset into memory for faster access.
+        """
+        for img_id in tqdm(self.img_ids, desc="Loading images into memory"):
+            img_path = self.data[img_id]['image_path']
+            try:
+                img = np.array(Image.open(img_path))
+                self.data[img_id].update({
+                    'image': img,
+                })
+            except Exception as e:
+                print(f"Error loading image {img_path}: {e}")
+
+
