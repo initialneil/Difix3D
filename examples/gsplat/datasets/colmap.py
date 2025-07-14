@@ -333,7 +333,8 @@ class Dataset:
         
         indices = np.arange(len(self.parser.image_names))
         if self.parser.test_every == 1:
-            image_names = sorted(_get_rel_paths(f"{self.parser.data_dir}/images"), key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            # image_names = sorted(_get_rel_paths(f"{self.parser.data_dir}/images"), key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            image_names = sorted(_get_rel_paths(f"{self.parser.data_dir}/images"))
             assert len(image_names) == len(self.parser.image_names)
             if split == "train":
                 self.indices = [ind for ind in indices if "_train_" in image_names[ind]]

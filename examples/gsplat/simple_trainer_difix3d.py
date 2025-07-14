@@ -45,6 +45,8 @@ from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy, MCMCStrategy
 from gsplat.optimizers import SelectiveAdam
 
+import sys
+sys.path.append(".")  # Add src to path for imports
 from examples.utils import CameraPoseInterpolator
 from src.pipeline_difix import DifixPipeline
 
@@ -460,7 +462,8 @@ class Runner:
         self.novelloaders_iter = []
         
         # Diffusion fixer
-        self.difix = DifixPipeline.from_pretrained("nvidia/difix_ref", trust_remote_code=True)
+        self.difix = DifixPipeline.from_pretrained("nvidia/difix_ref", trust_remote_code=True,
+                                                   cache_dir="assets/difix_ref")
         self.difix.set_progress_bar_config(disable=True)
         self.difix.to("cuda")
 
@@ -577,7 +580,7 @@ class Runner:
         pbar = tqdm.tqdm(range(init_step, max_steps))
         for step in pbar:
             if not cfg.disable_viewer:
-                while self.viewer.state.status == "paused":
+                while self.viewer.state == "paused":
                     time.sleep(0.01)
                 self.viewer.lock.acquire()
                 tic = time.time()
@@ -847,12 +850,14 @@ class Runner:
 
             if not cfg.disable_viewer:
                 self.viewer.lock.release()
-                num_train_steps_per_sec = 1.0 / (time.time() - tic)
+                num_train_steps_per_sec = 1.0 / (max(time.time() - tic, 1e-10))
                 num_train_rays_per_sec = (
                     num_train_rays_per_step * num_train_steps_per_sec
                 )
                 # Update the viewer state.
-                self.viewer.state.num_train_rays_per_sec = num_train_rays_per_sec
+                self.viewer.render_tab_state.num_train_rays_per_sec = (
+                    num_train_rays_per_sec
+                )
                 # Update the scene.
                 self.viewer.update(step, num_train_rays_per_step)
     

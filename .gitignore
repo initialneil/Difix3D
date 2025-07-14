@@ -25,6 +25,7 @@ data/
 outputs/
 checkpoints/
 assets/hugging_face
+assets/difix_ref
 *.pkl
 *.pt
 *.ckpt
