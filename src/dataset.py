@@ -68,3 +68,63 @@ class PairedDataset(torch.utils.data.Dataset):
             out["input_ids"] = input_ids
 
         return out
+
+
+
+class PairedGUAVADataset(torch.utils.data.Dataset):
+    def __init__(self, dataset_path, split, height=512, width=512, tokenizer=None):
+
+        super().__init__()
+        with open(dataset_path, "r") as f:
+            self.data = json.load(f)[split]
+        self.img_ids = list(self.data.keys())
+        self.image_size = (height, width)
+        self.tokenizer = tokenizer
+
+    def __len__(self):
+
+        return len(self.img_ids)
+
+    def __getitem__(self, idx):
+
+        img_id = self.img_ids[idx]
+        
+        img_path = self.data[img_id]["img_path"]
+        try:
+            packed_img = Image.open(img_path)
+            caption = self.data[img_id].get("prompt", "remove degradation and enhance image quality")
+        except:
+            print("Error loading image:", img_path)
+            return self.__getitem__(idx + 1)
+
+        packed_img_t = F.to_tensor(packed_img)
+        ref_t, target_t, render_t, render_raw_t = torch.chunk(packed_img_t, 4, dim=-1)
+
+
+        target_t = F.resize(target_t, self.image_size)
+        target_t = F.normalize(target_t, mean=[0.5], std=[0.5])
+
+        render_t = F.resize(render_t, self.image_size)
+        render_t = F.normalize(render_t, mean=[0.5], std=[0.5])
+
+        ref_t = F.resize(ref_t, self.image_size)
+        ref_t = F.normalize(ref_t, mean=[0.5], std=[0.5])
+        
+        target_t = torch.stack([target_t, ref_t], dim=0)
+        cond_t = torch.stack([render_t, ref_t], dim=0)
+
+        out = {
+            "output_pixel_values": target_t,
+            "conditioning_pixel_values": cond_t,
+            "caption": caption,
+        }
+        
+        if self.tokenizer is not None:
+            input_ids = self.tokenizer(
+                caption, max_length=self.tokenizer.model_max_length,
+                padding="max_length", truncation=True, return_tensors="pt"
+            ).input_ids
+            out["input_ids"] = input_ids
+
+        return out
+

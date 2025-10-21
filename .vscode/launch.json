@@ -1,0 +1,61 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "inference_difix_guava",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/inference_difix_guava.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset_path=/home/szj/err_empty_syn/ytb/bbox_square_x1.1/outputs/render_for_difix_v0.0.3-mix/difix_data.json",
+                "--output_dir=/home/szj/err_empty_syn/ytb/bbox_square_x1.1/outputs/infer_difix_v0.0.3-mix-small/",
+                "--model_path", "outputs/difix/train/v0.0.3-mix-small_it005001.pkl",
+                "--timestep=199",
+                "--mv_unet",
+            ]
+        },
+        {
+            "name": "train_difix_guava",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/train_difix_guava.py",
+            "console": "integratedTerminal",
+            "args": [
+                // "--mixed_precision=bf16", 
+                // "src/train_difix.py",
+                "--output_dir=outputs/difix/train",
+                "--dataset_path=/home/szj/err_empty_syn/ytb/bbox_square_x1.1/outputs/render_for_difix/difix_data.json",
+                "--max_train_steps=10000",
+                "--resolution=512",
+                "--learning_rate=2e-5",
+                "--train_batch_size=1",
+                "--dataloader_num_workers=8",
+                "--enable_xformers_memory_efficient_attention",
+                "--checkpointing_steps=1000",
+                // "--eval_freq=1000",
+                "--eval_freq=-1",
+                "--viz_freq=100",
+                "--lambda_lpips=1.0",
+                "--lambda_l2=1.0",
+                "--lambda_gram=1.0",
+                "--gram_loss_warmup_steps=2000",
+                "--report_to=wandb",
+                "--tracker_project_name=difix",
+                "--tracker_run_name=train",
+                "--timestep=199",
+                "--mv_unet",
+            ]
+        }
+    ]
+}
