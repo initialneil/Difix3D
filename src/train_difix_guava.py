@@ -165,6 +165,9 @@ def main(args):
     # start the training loop
     for epoch in range(0, args.num_training_epochs):
         for step, batch in enumerate(dl_train):
+            if global_step > args.max_train_steps:
+                break
+            
             l_acc = [net_difix]
             with accelerator.accumulate(*l_acc):
                 x_src = batch["conditioning_pixel_values"]
@@ -284,6 +287,12 @@ def main(args):
                         gc.collect()
                         torch.cuda.empty_cache()
                     accelerator.log(logs, step=global_step)
+
+    # save last ckpt
+    if accelerator.is_main_process:
+        outf = os.path.join(args.output_dir, "checkpoints", f"model_{global_step}.pkl")
+        save_ckpt(accelerator.unwrap_model(net_difix), optimizer, outf)
+        print(f"Saved final checkpoint to {outf}")
 
 
 if __name__ == "__main__":
